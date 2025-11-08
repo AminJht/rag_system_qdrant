@@ -1,0 +1,5 @@
+/.venv/
+/.venv2/
+/PDF_keeper/
+/models/
+/qdrant/qdrant_data/

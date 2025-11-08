@@ -1,0 +1,260 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="fa">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>چتبات</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            direction: rtl;
+            margin: 0;
+            background: linear-gradient(135deg, #1e3a8a, #3b82f6);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            color: #333;
+        }
+        h1 {
+            color: white;
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+        #chat-box {
+            width: 400px;
+            height: 400px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+            overflow-y: scroll;
+            padding: 15px;
+            margin-bottom: 1rem;
+            scrollbar-width: thin;
+            scrollbar-color: #3b82f6 #e5e7eb;
+        }
+        #chat-box::-webkit-scrollbar {
+            width: 8px;
+        }
+        #chat-box::-webkit-scrollbar-track {
+            background: #e5e7eb;
+            border-radius: 12px;
+        }
+        #chat-box::-webkit-scrollbar-thumb {
+            background: #3b82f6;
+            border-radius: 12px;
+        }
+        #message-input {
+            width: 320px;
+            padding: 12px;
+            font-size: 1rem;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        #message-input:focus {
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+        }
+        #send-button {
+            padding: 12px 24px;
+            font-size: 1rem;
+            background: #3b82f6;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        #send-button:hover {
+            background: #1e40af;
+        }
+        .user-message {
+            color: #1e3a8a;
+            font-weight: 600;
+            margin: 10px 0;
+            white-space: pre-line;
+            background: #eff6ff;
+            padding: 10px;
+            border-radius: 8px;
+        }
+        .bot-message {
+            color: #166534;
+            font-weight: 600;
+            margin: 10px 0;
+            white-space: pre-line;
+            background: #f0fdf4;
+            padding: 10px;
+            border-radius: 8px;
+        }
+        .timer-message {
+            color: #6b7280;
+            font-style: italic;
+            margin: 10px 0;
+            background: #f3f4f6;
+            padding: 8px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        .input-container {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+        }
+        .loader-container {
+            display: none;
+            align-items: center;
+            gap: 10px;
+            margin: 10px 0;
+            color: white;
+        }
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3b82f6;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <h1>چتبات</h1>
+    <div id="chat-box"></div>
+    <div id="loader-container" class="loader-container">
+        <div class="loader"></div>
+        <span>در حال پردازش...</span>
+    </div>
+    <div class="input-container">
+        <input type="text" id="message-input" placeholder="پیام خود را وارد کنید...">
+        <button id="send-button">ارسال</button>
+    </div>
+
+    <script>
+        const ws = new WebSocket("ws://" + window.location.host + "/ws");
+        const chatBox = document.getElementById("chat-box");
+        const messageInput = document.getElementById("message-input");
+        const sendButton = document.getElementById("send-button");
+        const loaderContainer = document.getElementById("loader-container");
+
+        let timerInterval = null;
+        let startTime = null;
+        let timerMessageElement = null;
+
+        // Ensure the page starts at the top on load
+        window.onload = function() {
+            window.scrollTo(0, 0);
+        };
+
+        ws.onmessage = function(event) {
+            const message = document.createElement("p");
+            // Only bot messages are received from the server
+            if (event.data.startsWith("خروجی:\n")) {
+                message.className = "bot-message";
+                // Stop and finalize timer
+                if (timerInterval && timerMessageElement) {
+                    clearInterval(timerInterval);
+                    const elapsedTime = (Date.now() - startTime) / 1000;
+                    timerMessageElement.textContent = `زمان پردازش: ${elapsedTime.toFixed(1)} ثانیه`;
+                    timerInterval = null;
+                    timerMessageElement = null;
+                }
+                // Hide loader
+                loaderContainer.style.display = "none";
+            }
+            message.textContent = event.data;
+            chatBox.appendChild(message);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        };
+
+        function startTimer() {
+            if (timerInterval) clearInterval(timerInterval);
+            startTime = Date.now();
+            timerMessageElement = document.createElement("p");
+            timerMessageElement.className = "timer-message";
+            timerMessageElement.textContent = `در حال شمارش: 0.0 ثانیه`;
+            chatBox.appendChild(timerMessageElement);
+            chatBox.scrollTop = chatBox.scrollHeight;
+            timerInterval = setInterval(() => {
+                const elapsedTime = (Date.now() - startTime) / 1000;
+                timerMessageElement.textContent = `در حال شمارش: ${elapsedTime.toFixed(1)} ثانیه`;
+                chatBox.scrollTop = chatBox.scrollHeight;
+            }, 100);
+        }
+
+        function sendMessage() {
+            const message = messageInput.value;
+            if (message) {
+                // Display user message immediately with newline
+                const userMessage = document.createElement("p");
+                userMessage.className = "user-message";
+                userMessage.textContent = `ورودی:\n${message}`;
+                chatBox.appendChild(userMessage);
+                chatBox.scrollTop = chatBox.scrollHeight;
+
+                // Show loader and start timer
+                loaderContainer.style.display = "flex";
+                startTimer();
+
+                // Send message to server
+                ws.send(message);
+                messageInput.value = "";
+            }
+        }
+
+        sendButton.onclick = sendMessage;
+
+        messageInput.addEventListener("keypress", function(event) {
+            if (event.key === "Enter") {
+                sendMessage();
+            }
+        });
+    </script>
+</body>
+</html>
